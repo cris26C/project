@@ -1,15 +1,25 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_event.h"
 #include "esp_log.h"
 #include "shtc3.h"
 
-static const char *TAG = "main"; 
+// Normally the DECLARE goes in a header so other files can use the base
+ESP_EVENT_DECLARE_BASE(SENSOR_EVENT);
+ESP_EVENT_DEFINE_BASE(SENSOR_EVENT);
+
+enum {
+    SENSOR_EVENT_NEWSAMPLE,
+};
+
+static const char *TAG = "main";
 typedef struct {
     uint32_t period_ms;
-    shtc3_reading_t reading;
+    esp_event_loop_handle_t loop;
 } sampler_args_t;
 
+// static: app_main returns, but the task keeps using these args
 static sampler_args_t sampler_args = { .period_ms = 1000 };
 
 static void sampler_task(void *pvParameters)
@@ -19,19 +29,44 @@ static void sampler_task(void *pvParameters)
     ESP_ERROR_CHECK(shtc3_init());
 
     while(1){
-        shtc3_read(&args->reading);
+        shtc3_reading_t r;
+        if (shtc3_read(&r) == ESP_OK) {
+            if (esp_event_post_to(args->loop, SENSOR_EVENT, SENSOR_EVENT_NEWSAMPLE,
+                                  &r, sizeof(r), 0) != ESP_OK) {
+                ESP_LOGW(TAG, "Event loop queue full, sample dropped");
+            }
+        }
         vTaskDelay(pdMS_TO_TICKS(args->period_ms));
     }
+}
+
+// Runs in the event loop's task, not in app_main
+static void new_sample_handler(void *handler_args, esp_event_base_t base,
+                               int32_t id, void *event_data)
+{
+    shtc3_reading_t *r = (shtc3_reading_t *)event_data;
+    ESP_LOGI(TAG, "Temperature: %.2f °C, Humidity: %.2f %%", r->temperature, r->humidity);
 }
 
 void app_main(void)
 {
     printf("Starting SHTC3 sampler task...\n");
     printf("Priority: %u\n", (unsigned) uxTaskPriorityGet(NULL));
-    xTaskCreate(sampler_task, "sampler", 4096, &sampler_args, 5, NULL);
 
-    while(1){
-        ESP_LOGI(TAG, "Temperature: %.2f °C, Humidity: %.2f %%", sampler_args.reading.temperature, sampler_args.reading.humidity);
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
+    // With task_name set, the loop gets its own task that dispatches the events
+    esp_event_loop_args_t loop_args = {
+        .queue_size = 5,
+        .task_name = "sensor_loop",
+        .task_priority = uxTaskPriorityGet(NULL),
+        .task_stack_size = 4096,
+        .task_core_id = tskNO_AFFINITY,
+    };
+    ESP_ERROR_CHECK(esp_event_loop_create(&loop_args, &sampler_args.loop));
+
+    ESP_ERROR_CHECK(esp_event_handler_instance_register_with(sampler_args.loop, SENSOR_EVENT,
+                                                             SENSOR_EVENT_NEWSAMPLE,
+                                                             new_sample_handler, NULL, NULL));
+
+    xTaskCreate(sampler_task, "sampler", 4096, &sampler_args, 5, NULL);
+    ESP_LOGI(TAG, "app_main done, returning");
 }
