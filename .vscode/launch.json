@@ -2,6 +2,29 @@
   "version": "0.2.0",
   "configurations": [
     {
+      // P1b - Depuración: GDB conectado a OpenOCD (JTAG integrado del ESP32-C3, localhost:3333).
+      // Requiere "idf.flashType": "JTAG" en settings.json y OpenOCD lanzado
+      // (botón "OpenOCD Server" de la barra de estado, o: openocd -f board/esp32c3-builtin.cfg).
+      "type": "gdbtarget",
+      "request": "attach",
+      "name": "ESP32-C3 JTAG (OpenOCD)",
+      "program": "${workspaceFolder}/build/${command:espIdf.getProjectName}.elf",
+      "initCommands": [
+        "set remotetimeout 20",
+        "set remote hardware-watchpoint-limit 8",
+        "mon reset halt",
+        "maintenance flush register-cache",
+        "thb app_main"
+      ],
+      "gdb": "${command:espIdf.getToolchainGdb}",
+      "target": {
+        "connectCommands": [
+          "set remotetimeout 20",
+          "-target-select extended-remote localhost:3333"
+        ]
+      }
+    },
+    {
       "type": "gdbtarget",
       "request": "attach",
       "name": "Eclipse CDT GDB Adapter"
