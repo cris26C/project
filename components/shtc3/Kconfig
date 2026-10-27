@@ -1,0 +1,17 @@
+menu "SHTC3 sensor"
+
+    config SHTC3_SDA_GPIO
+        int "I2C SDA GPIO"
+        range 0 48
+        default 10
+        help
+            GPIO connected to the SHTC3 SDA line (GPIO10 on the ESP32-C3-DevKit-RUST-1).
+
+    config SHTC3_SCL_GPIO
+        int "I2C SCL GPIO"
+        range 0 48
+        default 8
+        help
+            GPIO connected to the SHTC3 SCL line (GPIO8 on the ESP32-C3-DevKit-RUST-1).
+
+endmenu
